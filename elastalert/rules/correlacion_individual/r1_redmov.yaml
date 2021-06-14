@@ -1,0 +1,41 @@
+# (Required) Rule name, must be unique
+name: detect_rm
+
+description: "1 events (con anomalia: true) redes moviles in 5 minutes"
+# (Required) 
+#Type of alert. 
+#the frequency rule type alerts when num_events events occur with timeframe time
+type: frequency
+
+
+# (Required) Index to search, wildcard supported
+index: redes_moviles
+
+# If different than default
+timestamp_field: timestamp
+
+# (Required, frequency specific) 
+#Alert when this many documents matching the query occur within a timeframe
+num_events: 1
+
+# (Required, frequency specific) 
+#num_events must occur within this amount of time to trigger an alert
+timeframe:
+ # hours: 1
+  minutes: 5
+
+# only the first alert will be sent by default. 
+#If you want every alert, set realert to 0 minutes
+realert:
+  minutes: 10
+
+# to see all the hits related to the match
+attach_related: true 
+
+filter:
+- query:
+    query_string:
+      query: "anomalia: true"
+
+alert:
+- "debug"

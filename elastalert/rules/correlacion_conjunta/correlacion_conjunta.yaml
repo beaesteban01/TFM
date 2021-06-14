@@ -1,0 +1,27 @@
+name: correla_4_anomalias 
+description: "correlacion de detect_rf, detect_rm, detect_wifi, dectet_bt" 
+
+type: frequency 
+
+index: elastalert_status 
+
+num_events: 4
+
+timeframe:
+  minutes: 10 
+
+realert:
+  minutes: 0
+
+attach_related: true 
+
+filter: 
+- terms:
+    rule_name:
+      - detect_rf
+      - detect_bt
+      - detect_wifi
+      - detect_rm
+
+alert: 
+- "debug"

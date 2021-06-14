@@ -1,0 +1,31 @@
+name: whitelist_wifi
+description: "alert when footprint is NOT in the whitelist specified"
+
+type: whitelist
+
+timestamp_field: timestamp
+
+index: wifi_bea
+
+realert:
+  minutes: 0
+
+compare_key: footprint
+ignore_null: true
+whitelist:
+  - AA:AA:AA:AA:AA
+ 
+
+filter:
+- query:
+    query_string:
+      query: "anomalia: true"
+
+include:
+  - _id
+  - anomalia
+alert:
+- "debug"
+
+#alert_text_args:
+#  - act24h

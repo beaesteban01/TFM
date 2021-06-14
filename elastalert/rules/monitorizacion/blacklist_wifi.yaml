@@ -1,0 +1,30 @@
+name: blacklist_wifi
+description: "alert when footprint is in the blacklist defined"
+
+type: blacklist
+
+timestamp_field: timestamp
+
+index: wifi_bea
+
+realert:
+  minutes: 0
+
+compare_key: footprint
+
+blacklist:
+  - DE:0F:DC:32:04:44
+  - 6D:86:31:5D:CB:7B
+  - D8:FB:5E:25:BF:7A
+
+filter:
+- query:
+    query_string:
+      query: "anomalia: true"
+
+include:
+  - _id
+  - anomalia
+
+alert:
+- "debug"
