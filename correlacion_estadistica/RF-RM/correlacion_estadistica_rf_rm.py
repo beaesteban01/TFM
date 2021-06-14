@@ -1,3 +1,12 @@
+#!/usr/bin/env python3
+
+"""
+Correlacion estadistica RM-RF PLICA
+Version: 0.1.2
+Fecha: 2021/06/01
+Autores: Beatriz Esteban
+"""
+
 import requests, json, os, sys
 import pytz
 import pandas as pd
@@ -15,6 +24,46 @@ from scipy import stats
 from scipy.stats import linregress
 from datetime import datetime
 
+# Nombre index de ES
+index1_name='redes_moviles_bea'
+index2_name='radio_frecuencia_bea'
+
+# Atributos a eliminar de cada index. Fijos: '_index','_type','_id','_score','version','id','type','event','time', 'anomalia'
+columns_1_drop=['_index',
+                '_type',
+                '_id',
+                '_score',
+                'version',
+                'id',
+                'type',
+                'event',
+                'time',
+                'anomalia']
+columns_2_drop = ['_index',
+                '_type',
+                '_id',
+                '_score',
+                'version',
+                'id',
+                'type',
+                'event',
+                'time',
+                'anomalia']
+
+# Identificador para cada atributo del df conjunto
+id_nombre_index1="RM_"
+id_nombre_index2="RF_"
+
+# Atributos a eliminar del df conjunto. Solo cambiar identificador
+columns_final_drop=['index', 'RM_timestamp', 'RF_timestamp']
+
+# Atributos categorigos a los que aplicar one hot encoding
+columns_one_hot=['RM_rat',
+                 'RM_imei',
+                 'RM_imsi',
+                 'RF_mod',
+                 'RF_payload']
+
 def read_config(param):
     """
     Lee la configuracion del archivo pasado por parámetro
@@ -24,8 +73,6 @@ def read_config(param):
     config.read(param)
     print(">> Configuracion: {}".format(param))
     conf = {}
-
-    
     try:
         conf["dias"] = config["filtro_temp"].get("NUM_DIAS")
         conf["medida"] = config["filtro_temp"].get("MEDIDA")
@@ -60,7 +107,7 @@ try:
                         {
                             "range": {
                                 "timestamp": {
-                                    "gte": "now-{}".format(str(conf["dias"]+conf["medida"]))#GTE (greater than or equal)  
+                                    "gte": "now-{}".format(str(conf["dias"]+conf["medida"])) 
                                 }
                             }
                         }
@@ -77,37 +124,34 @@ try:
             if medida=="H":
                 factor_2=1
                 
-            index1 = es.search(index='redes_moviles_bea',body=time_query, size=999)
-            index2 =  es.search(index='radio_frecuencia_bea',body=time_query, size=999)
+            index1 = es.search(index=index1_name,body=time_query, size=999)
+            index2 =  es.search(index=index2_name,body=time_query, size=999)
           
-            len_index1=len(index1['hits']['hits'])#rm
-            len_index2=len(index2['hits']['hits'])#rf
+            len_index1=len(index1['hits']['hits'])
+            len_index2=len(index2['hits']['hits'])
             if (len_index1 == 0)or(len_index2 ==0): 
                 raise Exception(len_index1, len_index2)
               
         except Exception as inst:
             x, y = inst.args 
-            print(">> No hay datos, descargados {} hits de redes moviles y {} de radio frecuencia".format(x,y))
-            print(f"Delay de {num_dias_total*factor_2} segundos") #num_dias_total*3600
-            time.sleep(num_dias_total*factor_2*3600)#num_dias_total*3600
+            print(">> No hay datos, descargados {} hits de {} y {} de {}".format(x,id_nombre_index1,y,id_nombre_index2))
+            print(f"Delay de {num_dias_total*factor_2} horas") 
+            time.sleep(num_dias_total*factor_2*3600)
             
         else:
             timestamp_init_index1 = index1['hits']['hits'][0]['_source']['timestamp']
             timestamp_init_index2 = index2['hits']['hits'][0]['_source']['timestamp']
-            print(">> Descargados {} hits de redes moviles y {} de radio frecuencia".format(len_index1, len_index2))
-            print(">> Timestamp redes moviles {} y timestamp radio frecuencia {}".format(timestamp_init_index1,timestamp_init_index2))
+            print(">> Descargados {} hits de {} y {} de {}".format(len_index1,id_nombre_index1, len_index2, id_nombre_index2))
+            print(">> Timestamp {}: {} y timestamp {}: {}".format(id_nombre_index1, timestamp_init_index1, id_nombre_index2,timestamp_init_index2))
             
             index1_df = Select.from_dict(index1).to_pandas()
             index2_df = Select.from_dict(index2).to_pandas()
             
-            ## LIMPIEZA Redes moviles
-            ## GUARDAR COLUMNA EPOCHS Redes moviles
+            ## LIMPIEZA INDEX 1
+            
+            # 1. Transformacion columnas tipo timestamp
+            # Añadir las correspondientes
             i=0
-            j=0
-            k=0
-            z=0
-
-
             for t in index1_df["timestamp"]:
                 parsed_t = dp.parse(t)
                 t_in_seconds = parsed_t.strftime('%s')
@@ -118,59 +162,42 @@ try:
 
             index1_df["time_epoch"] = index1_df['time_epoch'].astype(int)
             
-            # FILTRAR ANOMALIA TRUE
+            # 2. Filtrado por anomalia True
             index1_df = index1_df.loc[(index1_df['anomalia']==True)]
 
-            #LIMPIAR DF Redes moviles
-            index1_df = index1_df.drop(columns=['_index',
-                                        '_type',
-                                        '_id',
-                                        '_score',
-                                        'version',
-                                        'id',
-                                        'type',
-                                        'event',
-                                        'time',
-                                        'anomalia'])
-
-            ## LIMPIEZA Radio frecuencia
-            ## GUARDAR COLUMNA EPOCHS radio frecuencia
-            i=0
+            # 3. Eliminación de atributos seleccionados
+            index1_df = index1_df.drop(columns=columns_1_drop)
+            
+            ## LIMPIEZA INDEX 2
+           
+            # 1. Transformacion columnas tipo timestamp
+            # Añadir las correspondientes
             j=0
-
-
             for t in index2_df["timestamp"]:
                 parsed_t = dp.parse(t)
                 t_in_seconds = parsed_t.strftime('%s')
-                index2_df.loc[i, "time_epoch"] = t_in_seconds
+                index2_df.loc[j, "time_epoch"] = t_in_seconds
                 #print(time)
-                i+=1
+                j+=1
                 #print(i)
-
 
             index2_df["time_epoch"] = index2_df['time_epoch'].astype(int)
 
-            # FILTRAR ANOMALIA TRUE
+            # 2. Filtrado por anomalia True
             index2_df = index2_df.loc[(index2_df['anomalia']==True)]
 
-            #LIMPIAR DF wifi
-            index2_df = index2_df.drop(columns=['_index',
-                                            '_type',
-                                            '_id',
-                                            '_score',
-                                            'version',
-                                            'id',
-                                            'type',
-                                            'event',
-                                            'time',
-                                            'anomalia'])
-
+            # 3. Eliminación de atributos seleccionados
+            index2_df = index2_df.drop(columns=columns_2_drop)
+            
+            ## AGREGACION DE AMBOS DF
+            
             nombres_index1=[]
             nombres_index2=[]
             
+            # 1. Añadir identificador de index a cada atributo
             for x in index1_df:
                 if (x != "time_epoch"):
-                    nombre_nuevo = "RM_"+str(x)
+                    nombre_nuevo = str(id_nombre_index1)+str(x)
                     nombres_index1.append(nombre_nuevo)
 
                 else:
@@ -182,7 +209,7 @@ try:
             for x in index2_df:
                 #print(x)
                 if (x != "time_epoch"):
-                    nombre_nuevo = "RF_"+str(x)
+                    nombre_nuevo = str(id_nombre_index2)+str(x)
                     nombres_index2.append(nombre_nuevo)
 
                 else:
@@ -190,65 +217,38 @@ try:
                     nombres_index2.append(nombre_nuevo)
 
             index2_df = index2_df.set_axis(nombres_index2, axis = 'columns')
-
-            #unirlos antes de convertirlos a numerico
+            
+            # 2. Unir ambos df
             index1_2 = index1_df.copy()
             index2_2 = index2_df.copy()
             
-
-            #Ordenarlos por time epoch!
+            # 3. Ordenar por time_epoch
             df1_df2 = index2_2.append(index1_2).sort_values(by='time_epoch')
-            #Reemplazo con 0 los NaN
+            
+            # 4. Reemplazar con 0 los NaN
             for x in df1_df2:
                 df1_df2[x] = df1_df2[x].fillna(0)
 
-            #Reseteo index y borro columna nueva de index
-            df1_df2_final = df1_df2.reset_index().drop(columns=['index', 'RM_timestamp', 'RF_timestamp'])
+            # 5. Resetear index y borrar columnas de timestamp no validas
+            df1_df2_final = df1_df2.reset_index().drop(columns=columns_final_drop)
 
-            #print(wifi_bt_final.shape)
-            #wifi_bt_final
+            ## GENERACION DE VENTANAS TEMPORALES
 
-            #Aplico ventanas
-
-            t_0= df1_df2_final.loc[0,"time_epoch"]#dia 12 
-            #print(t_0)
-
+            t_0= df1_df2_final.loc[0,"time_epoch"]
             minutos = conf["minutos"]
             factor_1 = float(60/minutos)
-            #horas = 1
-            # Duracion del tiempo de la ventana (segundos)
-            # Ventana x minutos
             t_ventana = minutos*60
-
-            # Ventana x horas
-            #t_ventana = horas*60*60
-
-            #num_dias_total=int(conf["dias"])
-            #medida = conf["medida"]
-
-            # CAMBIAR EN EL FOR 
-            # Ej: ventana cada 15 min: poner en el for ventanas 15_min para que haga 4 iteraciones
-            #ventanas_dia=num_dias_total*1
-            
-            '''if medida=="d":
-                factor_2=24
-            if medida=="H":
-                factor_2=1'''
-            
             ventanas_hora=num_dias_total*factor_2*factor_1
             print(f">> Hay {ventanas_hora} ventanas")
-
 
             ventana_actual={}
 
             for i in range(int(ventanas_hora)):
-
                 ventana_actual[i] = df1_df2_final.loc[(df1_df2_final['time_epoch'] >= (t_0)) & (df1_df2_final['time_epoch'] <= (t_0+t_ventana))]
                 t_0= t_0+t_ventana
-                #i+=1
                 #print(t_0)
 
-            # CORRELACION
+            ## CORRELACION
             num_ventanas = 0
             correlacion = {}
             # Filtro correlacion
@@ -265,7 +265,6 @@ try:
             p_values_1={k : [] for k in ventana_actual}
             corr_scipy_1={k : [] for k in ventana_actual}
 
-
             for i in ventana_actual:
 
                 if len(ventana_actual[i]) != 0:
@@ -275,25 +274,19 @@ try:
                     ventana_actual[i] = ventana_actual[i].reset_index().drop(columns="index")
                     time_init = ventana_actual[i]["time_epoch"].loc[0]
                     time_end = ventana_actual[i]["time_epoch"].loc[len(ventana_actual[i]["time_epoch"])-1]
-                    print(f" Time init ventana {i}: {datetime.utcfromtimestamp(time_init).isoformat()}, time end {datetime.utcfromtimestamp(time_end).isoformat()}")
+                    print(f" Time init ventana UTC {i}: {datetime.utcfromtimestamp(time_init).isoformat()}, time end UTC {datetime.utcfromtimestamp(time_end).isoformat()}")
 
                     # 1.One-hot encoding de cada ventana
                     ventana_actual[i] = pd.get_dummies(ventana_actual[i], drop_first=True, 
-                                                                     columns=[
-                                                                         'RM_rat',
-                                                                         'RM_imei',
-                                                                         'RM_imsi',
-                                                                         'RF_mod',
-                                                                         'RF_payload'
-                                                                     ])
+                                                                     columns=columns_one_hot)
                     num_ventanas+=1
 
                     # 2. Correlacion de cada ventana
                     correlacion[i] = ventana_actual[i].corr(method='pearson')
 
-                    # 3. Limpiar diagonal
+                    # 3. Limpieza diagonal
                     print(f" Sin borrar la diagonal hay {len(correlacion[i].stack().reset_index())+1} filas")
-                    # Mete zeros a la diagonal de abajo
+                    # Zeros a la diagonal de abajo
                     correlacion[i] = correlacion[i].mask(np.tril(np.ones(correlacion[i].shape)).astype(np.bool))
                     # Resetea indices
                     correlacion[i] = correlacion[i].stack().reset_index()
@@ -312,20 +305,19 @@ try:
                         ax = sns.heatmap(globals()["corr_ventana_"+str(i)], mask=mask, vmax=1, square=True, annot=True)
                         ax.set_xlabel(f'ventana{i}',fontsize=20)
                     '''
-                    # 4. Filtrar por valor de correlacion (0.8)
-                    #strong_5: 0.8-1 (sin incluir 1)
+                    # 4. Filtrado por valor de correlacion (sin incluir 1)
                     strong_08[i] = correlacion[i][abs(correlacion[i]["corr_pandas_pearson"]) > corr_threshold]
                     strong_08[i] = strong_08[i][abs(strong_08[i]["corr_pandas_pearson"]) < 1].reset_index().drop(columns=['index'])
                     print(f" Filtrando por correlacion mayor a {corr_threshold}, hay {len(strong_08[i])} parejas")
 
-                    # 5. Filtrar parejas del mismo dataset
+                    # 5. Filtrado parejas del mismo dataset
                     for j in range(len(strong_08[i])):
 
                         var1 = strong_08[i].loc[j, "var1"]
                         var2 = strong_08[i].loc[j, "var2"]
-                        if (var1.startswith('RF') & var2.startswith('RF')):
+                        if (var1.startswith(str(id_nombre_index1)) & var2.startswith(str(id_nombre_index1))):
                             strong_08[i] = strong_08[i].drop([j])
-                        if (var1.startswith('RM') & var2.startswith('RM')):
+                        if (var1.startswith(str(id_nombre_index2)) & var2.startswith(str(id_nombre_index2))):
                             strong_08[i] = strong_08[i].drop([j])
 
                     strong_08[i] = strong_08[i].reset_index().drop(columns="index")
@@ -349,13 +341,13 @@ try:
                     strong_08[i]["p-value"] = p_values_1[i]
                     strong_08[i]["corr_scipy_spearman"] = corr_scipy_1[i]
 
-                    # 7. Filtrar por valor de p_value (< 0,05) 
+                    # 7. Filtrado por valor de p_value
                     print(f" Hay {len(strong_08[i])} parejas sin filtrar p_value")
                     strong_08_05[i] = strong_08[i][abs(strong_08[i]["p-value"]) < p_value_threshold].reset_index().drop(columns=['index'])
                     print(f" Quedan {len(strong_08_05[i])} parejas con p_value < {p_value_threshold}")
                     #print((strong_08_05[0]))
 
-                    # 8. Enviar a ES
+                    # 8. Envio a ES
                     related= {}
 
                     # Añadir todas las parejas restantes a related_events
@@ -371,31 +363,25 @@ try:
                             j+=1
 
                     datos = {
-                    "index_1": "RM",
-                    "index_2": "RF",
+                    "index_1": str(id_nombre_index1),
+                    "index_2": str(id_nombre_index2),
                     "timestamp": pytz.utc.localize(datetime.utcnow()).astimezone(pytz.timezone("Europe/Madrid")).isoformat(),
-                    "time_init":datetime.utcfromtimestamp(time_init).isoformat(),
-                    "time_end":datetime.utcfromtimestamp(time_end).isoformat(),
+                    "time_init UTC":datetime.utcfromtimestamp(time_init).isoformat(),
+                    "time_end UTC":datetime.utcfromtimestamp(time_end).isoformat(),
                     "time_window_secs":t_ventana,
                     "correlacion_threshold": corr_threshold,
                     "p_value_threshold": p_value_threshold,
                     "related_events": [related]
                     }
                     if len(related) !=0:
-                        #print(len(related))
                         es.index(index='correlacion_estadistica', body=datos)
                         print(f">> Enviado un evento a ES con {len(related)} parejas correladas ")
                     else:
                         print(">> No se envía nada a ES por que hay {} parejas correladas que superen los umbrales".format(len(related)))
 
-
-
             print(f">> Ha habido en total {num_ventanas} ventanas con eventos")
-            print(f"Delay de {num_dias_total*factor_2*3600} segundos") #num_dias_total*3600
-            time.sleep(num_dias_total*factor_2*3600)#num_dias_total*3600
+            print(f"Delay de {num_dias_total*factor_2} horas") 
+            time.sleep(num_dias_total*factor_2*3600)
             
-            
-            
-
 except KeyboardInterrupt:
     observer.stop()
